@@ -47,19 +47,6 @@ def init_db():
         )
     ''')
     
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS live_status (
-            id INT PRIMARY KEY,
-            distance_cm FLOAT NOT NULL,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Ensure there is exactly one row in live_status
-    cursor.execute('SELECT COUNT(*) as cnt FROM live_status')
-    if cursor.fetchone()[0] == 0:
-        cursor.execute('INSERT INTO live_status (id, distance_cm) VALUES (1, 0.0)')
-        
     # Safely add g_force column if it doesn't exist from an older version
     try:
         cursor.execute("SHOW COLUMNS FROM detections LIKE 'g_force'")
@@ -134,11 +121,13 @@ def receive_pothole_data():
         print(f"Database error: {e}")
         return jsonify({"error": "Failed to store data"}), 500
 
-# Remove global variable, we now use the DB
+# Global variable to store the latest live distance
+latest_live_data = {"distance_cm": 0, "timestamp": "Wait..."}
 
 @app.route('/api/live', methods=['POST'])
 def receive_live_data():
     """API endpoint to receive live distance updates strictly for the dashboard heartbeat."""
+    global latest_live_data
     if not request.is_json:
         return jsonify({"error": "Content-Type must be application/json"}), 400
         
@@ -146,24 +135,12 @@ def receive_live_data():
     distance_cm = data.get('distance_cm')
     
     if distance_cm is not None:
-        try:
-            conn = get_db_connection()
-            if conn is None: return jsonify({"error": "DB error"}), 500
-            
-            cursor = conn.cursor()
-            cursor.execute(
-                'UPDATE live_status SET distance_cm = %s WHERE id = 1',
-                (round(distance_cm, 1),)
-            )
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
-            return jsonify({"message": "Live data updated"}), 200
-        except mysql.connector.Error as e:
-            print(f"Database error updating live: {e}")
-            return jsonify({"error": "Failed to update live distance"}), 500
-            
+        import datetime
+        latest_live_data = {
+            "distance_cm": round(distance_cm, 1),
+            "timestamp": datetime.datetime.now().strftime("%H:%M:%S")
+        }
+        return jsonify({"message": "Live data updated"}), 200
     return jsonify({"error": "Missing distance"}), 400
 
 @app.route('/api/clear', methods=['POST'])
@@ -187,29 +164,8 @@ def clear_detections():
 @app.route('/api/live_status', methods=['GET'])
 def get_live_status():
     """API endpoint for the dashboard to fetch the latest distance without reloading the page."""
-    try:
-        conn = get_db_connection()
-        if conn is None:
-            return jsonify({"distance_cm": "--", "timestamp": "DB Error"})
-            
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT distance_cm, updated_at FROM live_status WHERE id = 1')
-        row = cursor.fetchone()
-        
-        cursor.close()
-        conn.close()
-        
-        if row:
-            # Format time from datetime object
-            timestamp_str = row['updated_at'].strftime("%H:%M:%S") if row['updated_at'] else "Wait..."
-            return jsonify({
-                "distance_cm": row['distance_cm'],
-                "timestamp": timestamp_str
-            })
-    except mysql.connector.Error as e:
-        print(f"Database error fetching live status: {e}")
-        
-    return jsonify({"distance_cm": "--", "timestamp": "Error fetching data"})
+    global latest_live_data
+    return jsonify(latest_live_data)
 
 if __name__ == '__main__':
     # Run the server on all available interfaces (0.0.0.0) so the ESP32 can connect
