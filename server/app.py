@@ -1,34 +1,62 @@
-import sqlite3
+import mysql.connector
 import os
 from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
 
-# Database file location
-DB_FILE = os.path.join(os.path.dirname(__file__), 'potholes.db')
+# Database connection pool settings (Aiven MySQL URL)
+def get_db_connection():
+    # Example format expected: mysql://user:password@host:port/dbname
+    db_url = os.environ.get('DATABASE_URL')
+    
+    if not db_url:
+        print("DATABASE_URL environment variable not set!")
+        return None
+        
+    try:
+        # Parse the connection string aiven format
+        from urllib.parse import urlparse
+        result = urlparse(db_url)
+        
+        conn = mysql.connector.connect(
+            host=result.hostname,
+            user=result.username,
+            password=result.password,
+            port=result.port,
+            database=result.path[1:] # strip the leading '/'
+        )
+        return conn
+    except Exception as e:
+        print(f"Error connecting to database: {e}")
+        return None
 
 def init_db():
-    """Initializes the SQLite database with the required schema."""
-    conn = sqlite3.connect(DB_FILE)
+    """Initializes the MySQL database with the required schema."""
+    conn = get_db_connection()
+    if conn is None: return
+    
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS detections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id TEXT NOT NULL,
-            depth_cm REAL NOT NULL,
-            status TEXT NOT NULL,
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            device_id VARCHAR(255) NOT NULL,
+            depth_cm FLOAT NOT NULL,
+            status VARCHAR(255) NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            g_force REAL DEFAULT 0.0
+            g_force FLOAT DEFAULT 0.0
         )
     ''')
     
     # Safely add g_force column if it doesn't exist from an older version
     try:
-        cursor.execute('ALTER TABLE detections ADD COLUMN g_force REAL DEFAULT 0.0')
-    except sqlite3.OperationalError:
-        pass # Column already exists
+        cursor.execute("SHOW COLUMNS FROM detections LIKE 'g_force'")
+        if not cursor.fetchone():
+            cursor.execute('ALTER TABLE detections ADD COLUMN g_force FLOAT DEFAULT 0.0')
+    except mysql.connector.Error:
+        pass # Column already exists or error
         
     conn.commit()
+    cursor.close()
     conn.close()
 
 # Initialize DB when the app starts
@@ -37,13 +65,18 @@ init_db()
 @app.route('/')
 def dashboard():
     """Renders the dashboard with recent pothole detections."""
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row # Return dict-like rows
-    cursor = conn.cursor()
+    conn = get_db_connection()
+    if conn is None:
+        return "Database Connection Failed - Set DATABASE_URL in Vercel", 500
+        
+    # Return dict-like rows
+    cursor = conn.cursor(dictionary=True)
     
     # Fetch the 50 most recent detections
     cursor.execute('SELECT * FROM detections ORDER BY timestamp DESC LIMIT 50')
     detections = cursor.fetchall()
+    
+    cursor.close()
     conn.close()
     
     return render_template('index.html', detections=detections)
@@ -68,19 +101,23 @@ def receive_pothole_data():
 
     try:
         # Save to database
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({"error": "Failed to connect to DB"}), 500
+            
         cursor = conn.cursor()
         cursor.execute(
-            'INSERT INTO detections (device_id, depth_cm, status) VALUES (?, ?, ?)',
+            'INSERT INTO detections (device_id, depth_cm, status) VALUES (%s, %s, %s)',
             (device_id, depth_cm, status)
         )
         conn.commit()
+        cursor.close()
         conn.close()
         
         print(f"Recorded pothole from {device_id} with depth {depth_cm}cm")
         return jsonify({"message": "Data received and stored successfully"}), 201
         
-    except sqlite3.Error as e:
+    except mysql.connector.Error as e:
         print(f"Database error: {e}")
         return jsonify({"error": "Failed to store data"}), 500
 
@@ -110,13 +147,17 @@ def receive_live_data():
 def clear_detections():
     """API endpoint to clear all pothole records from the database."""
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({"error": "Failed to connect to DB"}), 500
+            
         cursor = conn.cursor()
         cursor.execute('DELETE FROM detections')
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"message": "All warnings cleared"}), 200
-    except sqlite3.Error as e:
+    except mysql.connector.Error as e:
         print(f"Database error: {e}")
         return jsonify({"error": "Failed to clear data"}), 500
 
