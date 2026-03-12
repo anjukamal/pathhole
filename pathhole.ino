@@ -4,8 +4,8 @@
 const char* ssid = "Motog73";
 const char* password = "81225273";
 
-const char* potholeUrl = "http://10.151.128.45:5000/api/pothole";
-const char* liveUrl = "http://10.151.128.45:5000/api/live";
+const char* potholeUrl = "https://pathhole.vercel.app/api/pothole";
+const char* liveUrl = "https://pathhole.vercel.app/api/live";
 const char* deviceId = "ESP32_VEHICLE_1";
 
 const int trigPin = 1;

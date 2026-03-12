@@ -1,132 +1,61 @@
-import mysql.connector
 import os
+import datetime
 from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
 
-# Database connection pool settings (Aiven MySQL URL)
-def get_db_connection():
-    # Example format expected: mysql://user:password@host:port/dbname
-    db_url = os.environ.get('DATABASE_URL')
-    
-    if not db_url:
-        print("DATABASE_URL environment variable not set!")
-        return None
-        
-    try:
-        # Parse the connection string aiven format
-        from urllib.parse import urlparse
-        result = urlparse(db_url)
-        
-        conn = mysql.connector.connect(
-            host=result.hostname,
-            user=result.username,
-            password=result.password,
-            port=result.port,
-            database=result.path[1:] # strip the leading '/'
-        )
-        return conn
-    except Exception as e:
-        print(f"Error connecting to database: {e}")
-        return None
-
-def init_db():
-    """Initializes the MySQL database with the required schema."""
-    conn = get_db_connection()
-    if conn is None: return
-    
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS detections (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            device_id VARCHAR(255) NOT NULL,
-            depth_cm FLOAT NOT NULL,
-            status VARCHAR(255) NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            g_force FLOAT DEFAULT 0.0
-        )
-    ''')
-    
-    # Safely add g_force column if it doesn't exist from an older version
-    try:
-        cursor.execute("SHOW COLUMNS FROM detections LIKE 'g_force'")
-        if not cursor.fetchone():
-            cursor.execute('ALTER TABLE detections ADD COLUMN g_force FLOAT DEFAULT 0.0')
-    except mysql.connector.Error:
-        pass # Column already exists or error
-        
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-# Initialize DB when the app starts
-init_db()
+# --- IN-MEMORY DATA STORAGE ---
+# Vercel serverless functions are ephemeral. This data will vanish frequently,
+# but provides the absolute maximum speed (10-30ms) for hardware interactions.
+detections_db = []
+latest_live_data = {"distance_cm": 0, "timestamp": "Wait..."}
+detection_id_counter = 1
 
 @app.route('/')
 def dashboard():
-    """Renders the dashboard with recent pothole detections."""
-    conn = get_db_connection()
-    if conn is None:
-        return "Database Connection Failed - Set DATABASE_URL in Vercel", 500
-        
-    # Return dict-like rows
-    cursor = conn.cursor(dictionary=True)
-    
-    # Fetch the 50 most recent detections
-    cursor.execute('SELECT * FROM detections ORDER BY timestamp DESC LIMIT 50')
-    detections = cursor.fetchall()
-    
-    cursor.close()
-    conn.close()
-    
-    return render_template('index.html', detections=detections)
+    """Renders the dashboard with recent pothole detections (from memory)."""
+    # Sort detections newest to oldest and take the last 50
+    sorted_detections = sorted(detections_db, key=lambda x: x['timestamp'], reverse=True)[:50]
+    return render_template('index.html', detections=sorted_detections)
 
 
 @app.route('/api/pothole', methods=['POST'])
 def receive_pothole_data():
-    """API endpoint to receive POST requests from the ESP32."""
+    """API endpoint to receive POST requests from the ESP32 (Instant RAM write)."""
+    global detection_id_counter
+    
     if not request.is_json:
         return jsonify({"error": "Content-Type must be application/json"}), 400
 
     data = request.get_json()
     
-    # Extract data with default fallbacks
     device_id = data.get('device_id', 'Unknown')
     depth_cm = data.get('depth_cm')
     status = data.get('status', 'detected')
 
-    # Basic validation
     if depth_cm is None:
         return jsonify({"error": "Missing depth_cm field"}), 400
 
-    try:
-        # Save to database
-        conn = get_db_connection()
-        if conn is None:
-            return jsonify({"error": "Failed to connect to DB"}), 500
-            
-        cursor = conn.cursor()
-        cursor.execute(
-            'INSERT INTO detections (device_id, depth_cm, status) VALUES (%s, %s, %s)',
-            (device_id, depth_cm, status)
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        print(f"Recorded pothole from {device_id} with depth {depth_cm}cm")
-        return jsonify({"message": "Data received and stored successfully"}), 201
-        
-    except mysql.connector.Error as e:
-        print(f"Database error: {e}")
-        return jsonify({"error": "Failed to store data"}), 500
+    # Save to memory
+    new_detection = {
+        "id": detection_id_counter,
+        "device_id": device_id,
+        "depth_cm": depth_cm,
+        "status": status,
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ")+"+05:30",
+        "g_force": data.get('g_force', 0.0)
+    }
+    
+    detections_db.append(new_detection)
+    detection_id_counter += 1
+    
+    print(f"Recorded pothole from {device_id} with depth {depth_cm}cm")
+    return jsonify({"message": "Data received and stored in RAM seamlessly"}), 201
 
-# Global variable to store the latest live distance
-latest_live_data = {"distance_cm": 0, "timestamp": "Wait..."}
 
 @app.route('/api/live', methods=['POST'])
 def receive_live_data():
-    """API endpoint to receive live distance updates strictly for the dashboard heartbeat."""
+    """API endpoint to receive live distance updates (Instant memory overwrite)."""
     global latest_live_data
     if not request.is_json:
         return jsonify({"error": "Content-Type must be application/json"}), 400
@@ -135,7 +64,6 @@ def receive_live_data():
     distance_cm = data.get('distance_cm')
     
     if distance_cm is not None:
-        import datetime
         latest_live_data = {
             "distance_cm": round(distance_cm, 1),
             "timestamp": datetime.datetime.now().strftime("%H:%M:%S")
@@ -143,30 +71,21 @@ def receive_live_data():
         return jsonify({"message": "Live data updated"}), 200
     return jsonify({"error": "Missing distance"}), 400
 
+
 @app.route('/api/clear', methods=['POST'])
 def clear_detections():
-    """API endpoint to clear all pothole records from the database."""
-    try:
-        conn = get_db_connection()
-        if conn is None:
-            return jsonify({"error": "Failed to connect to DB"}), 500
-            
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM detections')
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return jsonify({"message": "All warnings cleared"}), 200
-    except mysql.connector.Error as e:
-        print(f"Database error: {e}")
-        return jsonify({"error": "Failed to clear data"}), 500
+    """API endpoint to clear all pothole records from memory."""
+    global detections_db, detection_id_counter
+    detections_db = []
+    detection_id_counter = 1
+    return jsonify({"message": "All warnings cleared"}), 200
+
 
 @app.route('/api/live_status', methods=['GET'])
 def get_live_status():
-    """API endpoint for the dashboard to fetch the latest distance without reloading the page."""
-    global latest_live_data
+    """API endpoint for the dashboard to fetch the latest distance instantly."""
     return jsonify(latest_live_data)
 
+
 if __name__ == '__main__':
-    # Run the server on all available interfaces (0.0.0.0) so the ESP32 can connect
     app.run(host='0.0.0.0', port=5000, debug=True)
