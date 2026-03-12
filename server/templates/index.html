@@ -5,13 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Pothole Detection Dashboard</title>
-    <!-- Use Tailwind CSS for rapid styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Add FontAwesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <script>
-        // Fetch live sensor data continuously
         async function fetchLiveStatus() {
             try {
                 const response = await fetch('/api/live_status');
@@ -35,22 +32,14 @@
                 }
             }
         }
-
-        // Fetch every 1 second
         setInterval(fetchLiveStatus, 1000);
-
-        // Fetch table data automatically (instead of whole page reload)
         setInterval(() => {
-            // We'll still do a page reload for the table, but with a longer interval 
-            // so we don't interrupt the live distance box too much.
             window.location.reload();
         }, 10000); 
     </script>
 </head>
 
 <body class="bg-gray-100 font-sans text-gray-800">
-
-    <!-- Navigation/Header -->
     <nav class="bg-blue-600 shadow-lg">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
@@ -67,11 +56,7 @@
             </div>
         </div>
     </nav>
-
-    <!-- Main Content -->
     <main class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-
-        <!-- Summary Dashboard Widgets -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6 flex items-center border-l-4 border-blue-500">
                 <div class="p-3 rounded-full bg-blue-100 text-blue-500 mr-4">
@@ -90,7 +75,6 @@
                 <div>
                     <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider">Recent Alerts</h3>
                     <p class="text-3xl font-bold text-gray-900">
-                        <!-- Simplified recent count just for demo -->
                         {% if detections|length > 0 %} Active {% else %} None {% endif %}
                     </p>
                 </div>
@@ -106,15 +90,12 @@
                 <p id="live-timestamp" class="text-xs text-gray-400 mt-2">Waiting for data...</p>
             </div>
         </div>
-
-        <!-- Detection Table -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
             <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                 <div>
                     <h2 class="text-xl font-semibold text-gray-800">Recent Pothole Detections</h2>
                     <p class="text-sm text-gray-500 mt-1">Real-time data stream from ESP32 sensors</p>
                 </div>
-                <!-- CRITICAL UPDATE: Add button to clear warnings -->
                 <button onclick="clearWarnings()"
                     class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded-md shadow-sm text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 flex items-center">
                     <i class="fa-solid fa-trash-can mr-2"></i> Clear Warnings
@@ -187,7 +168,6 @@
                     </tbody>
                 </table>
             </div>
-            <!-- Footer pagination or info -->
             <div class="bg-gray-50 px-6 py-3 border-t border-gray-200 text-xs text-gray-500">
                 Showing maximum 50 recent records. Page auto-refreshes every 5 seconds.
             </div>

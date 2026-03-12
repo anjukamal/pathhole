@@ -3,25 +3,18 @@ import datetime
 from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
-
-# --- IN-MEMORY DATA STORAGE ---
-# Vercel serverless functions are ephemeral. This data will vanish frequently,
-# but provides the absolute maximum speed (10-30ms) for hardware interactions.
 detections_db = []
 latest_live_data = {"distance_cm": 0, "timestamp": "Wait..."}
 detection_id_counter = 1
 
 @app.route('/')
 def dashboard():
-    """Renders the dashboard with recent pothole detections (from memory)."""
-    # Sort detections newest to oldest and take the last 50
     sorted_detections = sorted(detections_db, key=lambda x: x['timestamp'], reverse=True)[:50]
     return render_template('index.html', detections=sorted_detections)
 
 
 @app.route('/api/pothole', methods=['POST'])
 def receive_pothole_data():
-    """API endpoint to receive POST requests from the ESP32 (Instant RAM write)."""
     global detection_id_counter
     
     if not request.is_json:
@@ -35,8 +28,6 @@ def receive_pothole_data():
 
     if depth_cm is None:
         return jsonify({"error": "Missing depth_cm field"}), 400
-
-    # Save to memory
     new_detection = {
         "id": detection_id_counter,
         "device_id": device_id,
@@ -55,7 +46,6 @@ def receive_pothole_data():
 
 @app.route('/api/live', methods=['POST'])
 def receive_live_data():
-    """API endpoint to receive live distance updates (Instant memory overwrite)."""
     global latest_live_data
     if not request.is_json:
         return jsonify({"error": "Content-Type must be application/json"}), 400
@@ -74,7 +64,6 @@ def receive_live_data():
 
 @app.route('/api/clear', methods=['POST'])
 def clear_detections():
-    """API endpoint to clear all pothole records from memory."""
     global detections_db, detection_id_counter
     detections_db = []
     detection_id_counter = 1
@@ -83,7 +72,6 @@ def clear_detections():
 
 @app.route('/api/live_status', methods=['GET'])
 def get_live_status():
-    """API endpoint for the dashboard to fetch the latest distance instantly."""
     return jsonify(latest_live_data)
 
 
