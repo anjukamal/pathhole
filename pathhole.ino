@@ -8,9 +8,9 @@ const char* potholeUrl = "https://pathhole.vercel.app/api/pothole";
 const char* liveUrl = "https://pathhole.vercel.app/api/live";
 const char* deviceId = "ESP32_VEHICLE_1";
 
-const int trigPin = 1;
-const int echoPin = 2;
-const int buzzerPin = 4;
+const int trigPin = 5;
+const int echoPin = 18;
+const int buzzerPin = 19;
 
 const float NORMAL_ROAD_DISTANCE_CM = 12.0;
 const float POTHOLE_DEPTH_THRESHOLD_CM = 1;
