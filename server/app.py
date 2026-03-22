@@ -83,7 +83,8 @@ def receive_pothole_data():
     if depth_cm is None:
         return jsonify({"error": "Missing depth_cm field"}), 400
         
-    timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ")+"+05:30"
+    ist_time = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)
+    timestamp_str = ist_time.strftime("%Y-%m-%d %H:%M:%S")
 
     try:
         conn = get_db_connection()
