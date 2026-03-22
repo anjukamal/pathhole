@@ -1,5 +1,8 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+
+WiFiClientSecure secureClient;
 
 const char* ssid = "Motog73";
 const char* password = "81225273";
@@ -8,9 +11,9 @@ const char* potholeUrl = "https://pathhole.vercel.app/api/pothole";
 const char* liveUrl = "https://pathhole.vercel.app/api/live";
 const char* deviceId = "ESP32_VEHICLE_1";
 
-const int trigPin = 5;
-const int echoPin = 18;
-const int buzzerPin = 19;
+const int trigPin = 8;
+const int echoPin = 9;
+const int buzzerPin = 2;
 
 const float NORMAL_ROAD_DISTANCE_CM = 12.0;
 const float POTHOLE_DEPTH_THRESHOLD_CM = 1;
@@ -30,6 +33,8 @@ void setup() {
   pinMode(echoPin, INPUT);
   pinMode(buzzerPin, OUTPUT);
   digitalWrite(buzzerPin, LOW);
+  
+  secureClient.setInsecure();
   
   connectToWiFi();
 }
@@ -109,12 +114,22 @@ void detectPothole(float measuredDistance) {
 void sendLiveDistance(float currentDistance) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    http.begin(liveUrl);
+    http.begin(secureClient, liveUrl);
     http.addHeader("Content-Type", "application/json");
     
     String payload = "{\"device_id\":\"" + String(deviceId) + "\", \"distance_cm\":" + String(currentDistance) + "}";
     
     int httpResponseCode = http.POST(payload);
+    
+    if (httpResponseCode > 0) {
+      // Uncomment the line below to debug live updates if needed
+      // Serial.print("Live Update HTTP Response code: ");
+      // Serial.println(httpResponseCode);
+    } else {
+      Serial.print("Error sending live update: ");
+      Serial.println(httpResponseCode);
+    }
+    
     http.end();
   }
 }
@@ -123,7 +138,7 @@ void sendDetectionData(float depthDelta) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
     
-    http.begin(potholeUrl);
+    http.begin(secureClient, potholeUrl);
     http.addHeader("Content-Type", "application/json");
     
     String payload = "{\"device_id\":\"" + String(deviceId) + "\", \"depth_cm\":" + String(depthDelta) + ", \"status\":\"detected\"}";
